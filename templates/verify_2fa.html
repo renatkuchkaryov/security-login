@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>2FA</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="login-card">
+        <h2>Two-Factor Authentication</h2>
+        {% if message %}<div class="msg">{{ message }}</div>{% endif %}
+        <form method="POST">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="text" name="code" placeholder="6-digit code" maxlength="6" required>
+            <button type="submit">Verify</button>
+        </form>
+    </div>
+</body>
+</html>

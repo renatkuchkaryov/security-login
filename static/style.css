@@ -1,16 +1,23 @@
 
 body {
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(to right, #1f3970 50%, #ffffff 50%);
     display: flex;
-    justify-content: center;
+    justify-content: flex-end;
     align-items: center;
     min-height: 100vh; 
     margin: 0;
-    padding: 20px; 
+    padding: 70px; 
     box-sizing: border-box;
 }
-
+.corner-image {
+  position: fixed;  
+  top: 20px;          
+  left: 20px;      
+  width: 200px;    
+  height: auto;    
+  z-index: 1000; 
+    }
 .login-card {
     background: white;
     padding: 2rem;

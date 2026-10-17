@@ -12,6 +12,35 @@
         
         <div class="table-responsive">
             <table>
+                    <thead>
+        <tr>
+            <th>Email</th>
+            <th>ID</th>
+            <th>Username</th>
+            <th>Role</th>
+            <th>Action</th>
+        </tr>
+                    </thead>
+                <tbody>
+        {% for user in users %}
+        <tr>
+            <td>{{ user[0] }}</td>
+            <td>{{ user[1] }}</td>
+            <td>{{ user[2] }}</td>
+            <td>{{ user[3] }}</td>
+            <td>
+                {% if user[2] != 'admin' %}
+                <form method="POST" action="{{ url_for('delete_user', user_id=user[0]) }}" style="display:inline;">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="delete-btn">Delete</button>
+                </form>
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+                </tbody>
+            </table>
+            <!-- <table>
                 <thead>
                     <tr>
                         <th>ID</th>
@@ -32,10 +61,10 @@
                     </tr>
                     {% endfor %}
                 </tbody>
-            </table>
+            </table> -->
         </div>
         
-        <a href="{{ url_for('login') }}" class="logout-link">← Logout</a>
+        <a href="{{ url_for('logout') }}" class="logout-link">← Logout</a>
     </div>
 </body>
 </html>

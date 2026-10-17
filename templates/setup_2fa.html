@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Setup 2FA</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="login-card">
+        <h2>Enable 2FA</h2>
+        <p style="font-size:13px;">Scan this QR code in Google Authenticator, then enter the code.</p>
+        <img src="data:image/png;base64,{{ qr }}" alt="QR code" style="max-width:100%;">
+        <p style="font-size:12px;">Manual key: {{ secret }}</p>
+        {% if message %}<div class="msg">{{ message }}</div>{% endif %}
+        <form method="POST">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="text" name="code" placeholder="6-digit code" maxlength="6" required>
+            <button type="submit">Confirm</button>
+        </form>
+    </div>
+</body>
+</html>

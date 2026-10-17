@@ -1,0 +1,9 @@
+flask
+argon2-cffi
+python-dotenv
+flask-limiter
+flask-wtf
+cryptography
+pyotp
+qrcode[pil]
+gunicorn
