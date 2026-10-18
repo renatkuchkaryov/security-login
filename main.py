@@ -1,4 +1,11 @@
 import io
+import ssl
+import secrets
+import hashlib
+import time
+import smtplib
+import threading
+from email.message import EmailMessage
 import base64
 import pyotp
 import qrcode
@@ -49,6 +56,35 @@ logging.basicConfig(
 )
 security_log = logging.getLogger("security")
 
+ALERT_FROM = os.environ.get("ALERT_EMAIL_FROM")
+ALERT_PASSWORD = os.environ.get("ALERT_EMAIL_PASSWORD")
+ALERT_TO = os.environ.get("ALERT_EMAIL_TO")
+_last_alert = {}
+
+
+def _send_email(to, subject, body):
+    try:
+        msg = EmailMessage()
+        msg["Subject"] = f"[LoginProject] {subject}"
+        msg["From"] = ALERT_FROM
+        msg["To"] = to
+        msg.set_content(body)
+        with smtplib.SMTP("smtp.gmail.com", 587, timeout=10) as server:
+            server.starttls(context=ssl.create_default_context())
+            server.login(ALERT_FROM, ALERT_PASSWORD)
+            server.send_message(msg)
+    except Exception:
+        security_log.error("ALERT EMAIL FAILED")
+
+
+def send_alert(subject, body, cooldown=600):
+    if not (ALERT_FROM and ALERT_PASSWORD and ALERT_TO):
+        return
+    now = time.time()
+    if now - _last_alert.get(subject, 0) < cooldown:
+        return
+    _last_alert[subject] = now
+    threading.Thread(target=_send_email, args=(ALERT_TO, subject, body), daemon=True).start()
 # brute force qarşı
 limiter = Limiter(
     get_remote_address,
@@ -85,6 +121,18 @@ def init_db():
             ('admin', ph.hash(admin_password), 'admin')
         )
         conn.commit()
+        cursor.execute('''
+    CREATE TABLE IF NOT EXISTS known_devices (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        device_hash TEXT NOT NULL,
+        first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        last_ip TEXT,
+        UNIQUE(user_id, device_hash)
+    )
+''')
+        conn.commit()
     conn.close()
 
 
@@ -98,15 +146,74 @@ def login_required(f):
         return f(*args, **kwargs)
     return wrapper
 
+def check_device(user_id, username, response):
+    device_id = request.cookies.get("device_id")
+    if not device_id:
+        device_id = secrets.token_urlsafe(32)
+        response.set_cookie(
+            "device_id", device_id, max_age=60 * 60 * 24 * 365,
+            httponly=True, secure=HTTPS_ENABLED, samesite="Lax"
+        )
+    device_hash = hashlib.sha256(device_id.encode()).hexdigest()
+    ip = get_remote_address()
+
+    conn = get_conn()
+    has_any = conn.execute(
+        'SELECT 1 FROM known_devices WHERE user_id = ? LIMIT 1', (user_id,)
+    ).fetchone()
+    known = conn.execute(
+        'SELECT 1 FROM known_devices WHERE user_id = ? AND device_hash = ?',
+        (user_id, device_hash)
+    ).fetchone()
+
+    if known:
+        conn.execute(
+            'UPDATE known_devices SET last_seen = CURRENT_TIMESTAMP, last_ip = ? '
+            'WHERE user_id = ? AND device_hash = ?', (ip, user_id, device_hash)
+        )
+    else:
+        conn.execute(
+            'INSERT INTO known_devices (user_id, device_hash, last_ip) VALUES (?, ?, ?)',
+            (user_id, device_hash, ip)
+        )
+    row = conn.execute(
+        'SELECT email_encrypted FROM users WHERE id = ?', (user_id,)
+    ).fetchone()
+    conn.commit()
+    conn.close()
+
+    if not known and has_any and row and row[0] and ALERT_FROM:
+        user_agent = " ".join(request.headers.get("User-Agent", "unknown").split())[:150]
+        body = (
+            f"Hello, {username}.\n\n"
+            f"Your account was just signed in to from a new device.\n\n"
+            f"Time (UTC): {time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime())}\n"
+            f"IP address: {ip}\n"
+            f"Browser: {user_agent}\n\n"
+            f"If this was you, no action is needed.\n"
+            f"If this was NOT you, contact the administrator immediately "
+            f"and do not use this account until the issue is resolved.\n\n"
+            f"This message contains no links on purpose: never trust emails "
+            f"asking you to click a link to 'secure' your account."
+        )
+        threading.Thread(
+            target=_send_email, args=(decrypt(row[0]), "New sign-in to your account", body),
+            daemon=True
+        ).start()
+        security_log.warning("NEW DEVICE | user=%s | ip=%s", username, ip)
+
 def finish_login(user_id, username, role):
     session.clear()
+    session.permanent = True
     session["user_id"] = user_id
     session["username"] = username
     session["role"] = role
     security_log.info("LOGIN OK | user=%s | ip=%s", username, get_remote_address())
-    if role == "admin":
-        return redirect(url_for("show_users"))
-    return redirect(url_for("profile"))
+
+    target = "show_users" if role == "admin" else "profile"
+    response = redirect(url_for(target))
+    check_device(user_id, username, response)
+    return response
 def admin_required(f):
     @wraps(f)
     def wrapper(*args, **kwargs):
@@ -211,10 +318,12 @@ def delete_user(user_id):
         abort(400)  # özünü silmək olmaz
 
     conn = get_conn()
+    send_alert("User deleted", f"Target id: {user_id}\nBy: {session['username']}")
     security_log.warning(
     "USER DELETED | target_id=%s | by=%s | ip=%s",
     user_id, session["username"], get_remote_address())
     conn.execute('DELETE FROM users WHERE id = ?', (user_id,))
+    conn.execute('DELETE FROM known_devices WHERE user_id = ?', (user_id,))
     conn.commit()
     conn.close()
     return redirect(url_for('show_users'))
@@ -303,7 +412,9 @@ def set_security_headers(response):
 
 @app.errorhandler(429)
 def too_many_requests(e):
+    ip = get_remote_address()
     security_log.warning("RATE LIMIT HIT | ip=%s | path=%s", get_remote_address(), request.path)
+    send_alert("Rate limit triggered", f"IP: {ip}\nPath: {request.path}")
     return "Too many attempts. Please wait a minute and try again.", 429
 init_db()  
 
