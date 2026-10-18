@@ -104,14 +104,26 @@ def init_db():
     conn = get_conn()
     cursor = conn.cursor()
     cursor.execute('''
-    CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT UNIQUE NOT NULL,
-        password_hash TEXT NOT NULL,
-        role TEXT NOT NULL DEFAULT 'user',
-        email_encrypted TEXT,
-        totp_secret_encrypted TEXT,
-        totp_enabled INTEGER NOT NULL DEFAULT 0)
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'user',
+            email_encrypted TEXT,
+            totp_secret_encrypted TEXT,
+            totp_enabled INTEGER NOT NULL DEFAULT 0
+        )
+    ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS known_devices (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            device_hash TEXT NOT NULL,
+            first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_ip TEXT,
+            UNIQUE(user_id, device_hash)
+        )
     ''')
     cursor.execute('SELECT COUNT(*) FROM users')
     if cursor.fetchone()[0] == 0:
@@ -120,19 +132,7 @@ def init_db():
             'INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)',
             ('admin', ph.hash(admin_password), 'admin')
         )
-        conn.commit()
-        cursor.execute('''
-    CREATE TABLE IF NOT EXISTS known_devices (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER NOT NULL,
-        device_hash TEXT NOT NULL,
-        first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        last_ip TEXT,
-        UNIQUE(user_id, device_hash)
-    )
-''')
-        conn.commit()
+    conn.commit()
     conn.close()
 
 
